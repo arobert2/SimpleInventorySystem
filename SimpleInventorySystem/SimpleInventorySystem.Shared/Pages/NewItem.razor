@@ -1,0 +1,120 @@
+﻿@page "/new-item"
+@layout MainLayout
+@inject ILogger<NewItem> logger
+@inject IInventoryRepository inventoryRepo
+@inject NavigationManager NavigationManager
+
+<h3>New Inventory Item</h3>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger" role="alert">
+   @errorMessage
+    </div>
+}
+
+@if (showSuccess)
+{
+    <div class="alert alert-success" role="alert">
+   Item successfully added!
+    </div>
+}
+
+<EditForm Model="NewInventoryItem" OnValidSubmit="Submit" FormName="new-item-form">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+    <AntiforgeryToken />
+    
+    <div class="mb-3">
+        <label for="name" class="form-label">Name</label>
+        <InputText id="name" class="form-control" @bind-Value="NewInventoryItem.Name" />
+        <ValidationMessage For="@(() => NewInventoryItem.Name)" />
+    </div>
+    
+    <div class="mb-3">
+        <label for="description" class="form-label">Description</label>
+        <InputTextArea id="description" class="form-control" @bind-Value="NewInventoryItem.Description" rows="3" />
+        <ValidationMessage For="@(() => NewInventoryItem.Description)" />
+    </div>
+    
+    <div class="mb-3">
+        <label for="serialNumber" class="form-label">Serial Number</label>
+        <InputText id="serialNumber" class="form-control" @bind-Value="NewInventoryItem.SerialNumber" />
+        <ValidationMessage For="@(() => NewInventoryItem.SerialNumber)" />
+    </div>
+    
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-primary" disabled="@isSubmitting">
+    @if (isSubmitting)
+     {
+        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+        <span>Saving...</span>
+     }
+            else
+            {
+                <span>Save Item</span>
+            }
+        </button>
+        <button type="button" class="btn btn-secondary" @onclick="Cancel">Cancel</button>
+    </div>
+</EditForm>
+
+@code {
+    [SupplyParameterFromForm(FormName = "new-item-form")]
+    private InventoryItem NewInventoryItem { get; set; }
+
+    private bool isSubmitting = false;
+    private bool showSuccess = false;
+    private string errorMessage = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        // Initialize timestamps
+        NewInventoryItem = new InventoryItem();
+    }
+
+    private async Task Submit()
+    {
+        isSubmitting = true;
+        errorMessage = string.Empty;
+        showSuccess = false;
+
+        try
+        {
+            var result = await inventoryRepo.AddNewEntryAsync(NewInventoryItem);
+
+            if (result)
+            {
+                showSuccess = true;
+                logger.LogInformation("Successfully added new inventory item: {Name}", NewInventoryItem.Name);
+
+                // Reset form after successful submission
+                NewInventoryItem = new InventoryItem();
+
+  
+                // Optionally navigate after a delay
+                await Task.Delay(1500);
+                NavigationManager.NavigateTo("/");
+            }
+            else
+            {
+                errorMessage = "Failed to add the inventory item. Please try again.";
+                logger.LogWarning("Failed to add inventory item to database");
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"An error occurred: {ex.Message}";
+            logger.LogError(ex, "Error adding inventory item");
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private void Cancel()
+    {
+        NavigationManager.NavigateTo("/");
+    }
+}

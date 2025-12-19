@@ -1,0 +1,10 @@
+<Solution>
+  <Project Path="SimpleInventorySystem.AppHost/SimpleInventorySystem.AppHost.csproj" />
+  <Project Path="SimpleInventorySystem.Database/SimpleInventorySystem.Database.csproj" />
+  <Project Path="SimpleInventorySystem.ServiceDefaults/SimpleInventorySystem.ServiceDefaults.csproj" />
+  <Project Path="SimpleInventorySystem/SimpleInventorySystem.Shared/SimpleInventorySystem.Shared.csproj" />
+  <Project Path="SimpleInventorySystem/SimpleInventorySystem.Web/SimpleInventorySystem.Web.csproj" />
+  <Project Path="SimpleInventorySystem/SimpleInventorySystem/SimpleInventorySystem.csproj">
+    <Deploy Solution="Debug|*" />
+  </Project>
+</Solution>
