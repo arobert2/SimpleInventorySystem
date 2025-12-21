@@ -1,8 +1,8 @@
-﻿@page "/new-item"
+﻿@page "/newitem/{InventoryItemId:Guid?}"
 @layout MainLayout
 @inject ILogger<NewItem> logger
 @inject IInventoryRepository inventoryRepo
-@inject NavigationManager NavigationManager
+@inject NavigationManager NavManager
 
 <h3>New Inventory Item</h3>
 
@@ -90,15 +90,31 @@
 @code {
     [SupplyParameterFromForm(FormName = "new-item-form")]
     private InventoryItem NewInventoryItem { get; set; }
+    [Parameter]
+    public Guid? InventoryItemId { get; set; }
 
     private List<InventoryItemProperty> NewItemProperties { get; set; } = new List<InventoryItemProperty>();
+    private List<InventoryItemProperty> ExistingItemProperties { get; set; } = new List<InventoryItemProperty>();
 
     private bool isSubmitting = false;
     private bool showSuccess = false;
     private string errorMessage = string.Empty;
 
-    protected override void OnInitialized()
+    private enum FormMode { Edit, New }
+    private FormMode CurrentFormMode = FormMode.New;
+
+    protected async override Task OnInitializedAsync()
     {
+        if(InventoryItemId.HasValue)
+        {
+            CurrentFormMode = FormMode.Edit;
+            NewInventoryItem = await inventoryRepo.GetInventoryItemByIdAsync(InventoryItemId.Value);
+
+            if(NewInventoryItem == null)          
+                NavManager.NavigateTo("/NotFound", forceLoad: true);
+
+            ExistingItemProperties = (await inventoryRepo.GetInventoryItemPropertiesAsync(InventoryItemId.Value))?.ToList() ?? new List<InventoryItemProperty>();
+        }
         // Initialize timestamps
         NewInventoryItem = new InventoryItem();
     }
@@ -111,26 +127,49 @@
 
         try
         {
-            var result = await inventoryRepo.AddNewEntryAsync(NewInventoryItem);
-
-            if (result)
+            // Update
+            if(CurrentFormMode == FormMode.Edit)
             {
+                try
+                {
+                    await inventoryRepo.UpdateInventoryItemAsync(NewInventoryItem, ExistingItemProperties.Select(prop => prop.PropertyName).ToArray(), NewItemProperties);
+                }
+                catch (Exception ex)
+                {
+                    errorMessage = $"Failed to update the inventory item. {ex.Message}";
+                    logger.LogError(errorMessage);
+                    return;
+                }
+
                 showSuccess = true;
-                logger.LogInformation("Successfully added new inventory item: {Name}", NewInventoryItem.Name);
-
-                // Reset form after successful submission
-                NewInventoryItem = new InventoryItem();
-
-
+                logger.LogInformation($"Successfully updated inventory item: {NewInventoryItem.Name}", NewInventoryItem.Name);
                 // Optionally navigate after a delay
                 await Task.Delay(1500);
-                NavigationManager.NavigateTo("/");
+                NavManager.NavigateTo("/");
+                return;
             }
-            else
+
+            // Add New
+            try
             {
-                errorMessage = "Failed to add the inventory item. Please try again.";
-                logger.LogWarning("Failed to add inventory item to database");
+                await inventoryRepo.AddNewInventoryItemAsync(NewInventoryItem, NewItemProperties);
             }
+            catch (Exception ex)
+            {
+                errorMessage = $"Failed to add the inventory item. {ex.Message}";
+                logger.LogError(errorMessage);
+            }
+
+            showSuccess = true;
+            logger.LogInformation($"Successfully added new inventory item: {NewInventoryItem.Name}");
+
+            // Reset form after successful submission
+            NewInventoryItem = new InventoryItem();
+
+            // Optionally navigate after a delay
+            await Task.Delay(1500);
+            NavManager.NavigateTo("/");
+
         }
         catch (Exception ex)
         {
@@ -155,6 +194,6 @@
 
     private void Cancel()
     {
-        NavigationManager.NavigateTo("/");
+        NavManager.NavigateTo("/");
     }
 }
