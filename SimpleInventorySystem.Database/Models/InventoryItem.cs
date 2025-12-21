@@ -19,7 +19,6 @@ namespace SimpleInventorySystem.Database.Models
         [Required]
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
-        public Dictionary<string, object> UserAttributes { get; set; } = new();
         public int LamportClock { get; set; }
         public bool Deleted { get; set; }
     }

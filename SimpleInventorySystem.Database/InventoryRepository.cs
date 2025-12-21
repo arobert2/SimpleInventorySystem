@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore.Metadata.Internal;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using SimpleInventorySystem.Database.Contracts;
+using SimpleInventorySystem.Database.Exceptions;
 using SimpleInventorySystem.Database.Models;
 using System;
 using System.Collections.Generic;
@@ -21,6 +22,7 @@ namespace SimpleInventorySystem.Database
         private readonly IDbConnection db;
         private const string TABLE_NAME = "inventory_items";
         private const string TABLE_UNIT_NAME = "item_units";
+        private const string ITEM_PROPERTY_TABLE = "item_properties";
 
         public InventoryRepository(IDbConnection db)
         {
@@ -40,6 +42,50 @@ namespace SimpleInventorySystem.Database
 
             var count = await db.ExecuteScalarAsync<int>(sql);
             return count;
+        }
+
+        private async Task<bool> AddInventoryItemPropertyAsync(InventoryItemProperty property, Guid invItemId, IDbTransaction transaction)
+        {
+            var sql = $@"
+                INSERT INTO {ITEM_PROPERTY_TABLE} (
+                    {nameof(InventoryItemProperty.InventoryItemId).ToLower()},
+                    {nameof(InventoryItemProperty.PropertyName).ToLower()},
+                    {nameof(InventoryItemProperty.PropertyValue).ToLower()}
+                )
+                VALUES 
+                (@InventoryItemId, @PropertyName, @PropertyValue, @Deleted);
+            ";
+            try
+            {
+                // Add new item
+                var result = await db.ExecuteAsync(sql, new
+                {
+                    InventoryItemId = invItemId,
+                    PropertyName = property.PropertyName,
+                    PropertyValue = property.PropertyValue,
+                }, transaction);
+
+                if (result <= 0)
+                {
+                    transaction.Rollback();
+                    return false;
+                }
+
+                // add new item property
+
+
+                transaction.Commit();
+                return true;
+            }
+            catch
+            {
+                transaction.Rollback();
+                throw;
+            }
+            finally
+            {
+                db.Close();
+            }
         }
 
         #region ItemUnit CRUD Operations
@@ -125,7 +171,7 @@ namespace SimpleInventorySystem.Database
         /// </summary>
         /// <param name="newItem">A new inventory item</param>
         /// <returns>Success or failure</returns>
-        public async Task<bool> AddNewEntryAsync(InventoryItem newItem)
+        public async Task<bool> AddNewEntryAsync(InventoryItem newItem, IEnumerable<InventoryItemProperty> properties)
         {
             var sql = $@"
             -- Insert new inventory item and initialize Lamport clock
@@ -137,17 +183,18 @@ namespace SimpleInventorySystem.Database
                     {nameof(InventoryItem.UnitName).ToLower()},
                     {nameof(InventoryItem.CreatedAt).ToLower()}, 
                     {nameof(InventoryItem.UpdatedAt).ToLower()}, 
-                    {nameof(InventoryItem.UserAttributes).ToLower()},
                     {nameof(InventoryItem.Deleted).ToLower()}, 
                 )
                 VALUES 
-                (@Name, @Description, @PartNumber, @QuantityPerUnit, @UnitName, @CreatedAt, @UpdatedAt, CAST(@UserAttributes AS jsonb, @Deleted))
+                (@Name, @Description, @PartNumber, @QuantityPerUnit, @UnitName, @CreatedAt, @UpdatedAt, @Deleted)
+                RETURNING id;             
             ";
             db.Open();
             using var transaction = db.BeginTransaction();
             try
             {
-                var result = await db.ExecuteAsync(sql, new
+                // Add new item
+                var result = await db.ExecuteScalarAsync<Guid?>(sql, new
                 {
                     Name = newItem.Name,
                     Description = newItem.Description,
@@ -155,14 +202,18 @@ namespace SimpleInventorySystem.Database
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow,
                     Deleted = newItem.Deleted,
-                    UserAttributes = newItem.UserAttributes != null ? System.Text.Json.JsonSerializer.Serialize(newItem.UserAttributes) : null
                 }, transaction);
 
-                if(result <= 0)
+                if(result == null)
                 {
                     transaction.Rollback();
                     return false;
                 }
+
+                // add new item property
+                foreach(var property in properties)
+                    await AddInventoryItemPropertyAsync(property, result.Value, transaction);
+                
                 transaction.Commit();
                 return true;
             }
@@ -183,9 +234,15 @@ namespace SimpleInventorySystem.Database
         /// <param name="updatedItem">Data to update</param>
         /// <param name="lamportClock">Provided lamport clock</param>
         /// <returns>Success or failure</returns>
-        public async Task<bool> UpdateEntryAsync(InventoryItem updatedItem)
+        public async Task UpdateItemEntryAsync(InventoryItem updatedItem, string[] currentProperties, IEnumerable<InventoryItemProperty> newProperties)
         {
-            var sql = $@"
+            var lamportQuery = $@"
+                SELECT {nameof(InventoryItem.LamportClock).ToLower()}
+                FROM {TABLE_NAME}
+                WHERE {nameof(InventoryItem.Id).ToLower()} = @Id;
+            ";
+
+            var updateItem = $@"
                 UPDATE {TABLE_NAME}
                 SET 
                     {nameof(InventoryItem.Name).ToLower()} = @Name,
@@ -194,9 +251,25 @@ namespace SimpleInventorySystem.Database
                     {nameof(InventoryItem.QuantityPerUnit).ToLower()} = @QuantityPerUnit,
                     {nameof(InventoryItem.UnitName).ToLower()} = @UnitName,
                     {nameof(InventoryItem.UpdatedAt).ToLower()} = @UpdatedAt,
-                    {nameof(InventoryItem.UserAttributes).ToLower()} = @UserAttributes,
                     {nameof(InventoryItem.LamportClock).ToLower()} = @UserLamport
-                WHERE {nameof(InventoryItem.Id).ToLower()} = @Id AND {nameof(InventoryItem.LamportClock).ToLower()} < @UserLamport;
+                WHERE {nameof(InventoryItem.Id).ToLower()} = @Id;
+            ";
+
+            var removePropertiesQuery = $@"
+                UPDATE {ITEM_PROPERTY_TABLE}
+                SET {nameof(InventoryItemProperty.Deleted).ToLower()} = TRUE
+                WHERE {nameof(InventoryItemProperty.InventoryItemId).ToLower()} = @InventoryItemId
+                AND {nameof(InventoryItemProperty.PropertyName).ToLower()} = ANY(@PropertyNames);
+            ";
+
+            var addNewProperties = $@"
+                INSERT INTO {ITEM_PROPERTY_TABLE} (
+                    {nameof(InventoryItemProperty.InventoryItemId).ToLower()},
+                    {nameof(InventoryItemProperty.PropertyName).ToLower()},
+                    {nameof(InventoryItemProperty.PropertyValue).ToLower()}
+                )
+                VALUES 
+                (@InventoryItemId, @PropertyName, @PropertyValue);
             ";
 
             int result = -1;
@@ -204,7 +277,12 @@ namespace SimpleInventorySystem.Database
             var transaction = db.BeginTransaction();
             try
             {
-                result = await db.ExecuteAsync(sql, new
+                // Lamport Check
+                if(await db.ExecuteScalarAsync<int>(lamportQuery, new { Id = updatedItem.Id }) >= updatedItem.LamportClock)              
+                    throw new InvalidLamportException("Provided Lamport clock is not greater than existing value.");
+                
+                // Update Item
+                result = await db.ExecuteAsync(updateItem, new
                 {
                     Id = updatedItem.Id,
                     Name = updatedItem.Name,
@@ -213,9 +291,39 @@ namespace SimpleInventorySystem.Database
                     QuantityPerUnit = updatedItem.QuantityPerUnit,
                     UnitName = updatedItem.UnitName,
                     UpdatedAt = DateTime.UtcNow,
-                    UserAttributes = updatedItem.UserAttributes != null ? System.Text.Json.JsonSerializer.Serialize(updatedItem.UserAttributes) : null,
                     UserLamport = updatedItem.LamportClock
                 });
+                if (result < 0)
+                {
+                    transaction.Rollback();
+                    throw new Exception("Failed to update inventory item.");
+                }
+
+                // Remove old properties
+                result = await db.ExecuteAsync(removePropertiesQuery, new
+                {
+                    InventoryItemId = updatedItem.Id,
+                    PropertyNames = currentProperties
+                });
+                if (result < 0)
+                {
+                    transaction.Rollback();
+                    throw new Exception("Failed to remove old inventory item properties.");
+                }
+
+                result = await db.ExecuteAsync(addNewProperties, newProperties.Select(p => new
+                {
+                    InventoryItemId = updatedItem.Id,
+                    PropertyName = p.PropertyName,
+                    PropertyValue = p.PropertyValue
+                }), transaction);
+
+                if (result < 0)
+                {
+                    transaction.Rollback();
+                    throw new Exception("Failed to add new inventory item properties.");
+                }
+
                 transaction.Commit();
             } catch
             {
@@ -226,7 +334,6 @@ namespace SimpleInventorySystem.Database
             {
                 db.Close();
             }
-            return result > 0;
         }
 
         /// <summary>
@@ -253,9 +360,9 @@ namespace SimpleInventorySystem.Database
             var sql = $@"
                 SELECT *
                 FROM {TABLE_NAME}
-                ORDER BY {ob} {direction}
+                ORDER BY @orderColumn @orderDirection
                 LIMIT @PageSize OFFSET @Offset;";
-            var items = await db.QueryAsync<InventoryItem>(sql, new { PageSize = pageSize, Offset = currentPage * pageSize });
+            var items = await db.QueryAsync<InventoryItem>(sql, new { PageSize = pageSize, Offset = currentPage * pageSize, orderColumn = ob, orderDirection = direction });
             return items;
         }
         #endregion
@@ -298,16 +405,22 @@ namespace SimpleInventorySystem.Database
                     {nameof(InventoryItem.UnitName).ToLower()} VARCHAR(50),
                     {nameof(InventoryItem.CreatedAt).ToLower()} TIMESTAMP WITHOUT TIME ZONE NOT NULL,
                     {nameof(InventoryItem.UpdatedAt).ToLower()} TIMESTAMP WITHOUT TIME ZONE NOT NULL,
-                    {nameof(InventoryItem.UserAttributes).ToLower()} JSONB,
                     {nameof(InventoryItem.LamportClock).ToLower()} INTEGER DEFAULT 0,
                     {nameof(InventoryItem.Deleted).ToLower()} BOOLEAN DEFAULT FALSE              
                 );
                 CREATE TABLE IF NOT EXISTS {TABLE_UNIT_NAME} (
-                    {nameof(ItemUnit.Id).ToLower()} UUID PRIMARY KEY,
+                    {nameof(ItemUnit.Id).ToLower()} UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     {nameof(ItemUnit.InventoryItemId).ToLower()} UUID REFERENCES {TABLE_NAME}({nameof(InventoryItem.Id).ToLower()}) ON DELETE CASCADE,
                     {nameof(ItemUnit.RecordedInInventory).ToLower()} TIMESTAMP WITHOUT TIME ZONE NOT NULL,
                     {nameof(ItemUnit.RemovedFromInventory).ToLower()} TIMESTAMP WITHOUT TIME ZONE,
                     {nameof(ItemUnit.Removed).ToLower()} BOOLEAN DEFAULT FALSE
+                );
+                CREATE TABLE IF NOT EXISTS {ITEM_PROPERTY_TABLE} (
+                    {nameof(InventoryItemProperty.Id).ToLower()} UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    {nameof(InventoryItemProperty.InventoryItemId).ToLower()} UUID REFERENCES {TABLE_NAME}({nameof(InventoryItem.Id).ToLower()}) ON DELETE CASCADE,
+                    {nameof(InventoryItemProperty.PropertyName).ToLower()} VARCHAR(100) NOT NULL,
+                    {nameof(InventoryItemProperty.PropertyValue).ToLower()} TEXT NOT NULL,
+                    {nameof(InventoryItemProperty.Deleted).ToLower()} BOOLEAN DEFAULT FALSE
                 );
                 ";
             db.Open();

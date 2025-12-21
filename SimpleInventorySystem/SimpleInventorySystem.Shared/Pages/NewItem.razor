@@ -53,17 +53,35 @@
         <ValidationMessage For="@(() => NewInventoryItem.UnitName)" />
     </div>
     
+    <table>
+        @foreach(var itemProperty in NewItemProperties)
+        {
+            <tr>
+                <td>
+                    <InputText class="form-control" @bind-Value="itemProperty.PropertyName" placeholder="Property Name" />
+                </td>
+                <td>
+                    <InputText class="form-control" @bind-Value="itemProperty.PropertyValue" placeholder="Property Value" />
+                </td>
+                <td>
+                    <button type="button" class="btn btn-danger" @onclick="() => RemoveProperty(itemProperty)">Remove</button>
+                </td>
+            </tr>
+        }
+    </table>
+
     <div class="d-flex gap-2">
-    <button type="submit" class="btn btn-primary" disabled="@isSubmitting">
-    @if (isSubmitting)
-     {
-        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-        <span>Saving...</span>
-     }
-    else
-    {
-        <span>Save Item</span>
-    }
+        <button type="button" class="btn btn-primary" @onclick="AddProperty">Add Item Property</button>
+        <button type="submit" class="btn btn-primary" disabled="@isSubmitting">
+        @if (isSubmitting)
+         {
+            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+            <span>Saving...</span>
+         }
+        else
+        {
+            <span>Save Item</span>
+        }
         </button>
         <button type="button" class="btn btn-secondary" @onclick="Cancel">Cancel</button>
     </div>
@@ -72,6 +90,8 @@
 @code {
     [SupplyParameterFromForm(FormName = "new-item-form")]
     private InventoryItem NewInventoryItem { get; set; }
+
+    private List<InventoryItemProperty> NewItemProperties { get; set; } = new List<InventoryItemProperty>();
 
     private bool isSubmitting = false;
     private bool showSuccess = false;
@@ -101,7 +121,7 @@
                 // Reset form after successful submission
                 NewInventoryItem = new InventoryItem();
 
-  
+
                 // Optionally navigate after a delay
                 await Task.Delay(1500);
                 NavigationManager.NavigateTo("/");
@@ -121,6 +141,16 @@
         {
             isSubmitting = false;
         }
+    }
+
+    private void AddProperty()
+    {
+        NewItemProperties.Add(new InventoryItemProperty());
+    }
+
+    private void RemoveProperty(InventoryItemProperty property)
+    {
+        NewItemProperties.Remove(property);
     }
 
     private void Cancel()
