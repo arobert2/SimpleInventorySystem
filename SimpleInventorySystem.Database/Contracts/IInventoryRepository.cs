@@ -9,7 +9,7 @@ namespace SimpleInventorySystem.Database.Contracts
     public interface IInventoryRepository
     {
         Task<bool> AddNewEntryAsync(InventoryItem newItem);
-        Task<bool> UpdateEntryAsync(InventoryItem updatedItem, int lamportClock);
+        Task<bool> UpdateEntryAsync(InventoryItem updatedItem);
         Task<InventoryItem?> GetEntryByIdAsync(Guid id);
         Task<IEnumerable<InventoryItem>> GetPageAsync(int page, int pageSize, string orderBy, OrderByDirection orderDirection = OrderByDirection.Ascending);
     }

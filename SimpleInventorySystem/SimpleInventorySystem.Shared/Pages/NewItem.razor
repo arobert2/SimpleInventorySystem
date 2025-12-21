@@ -38,22 +38,32 @@
     </div>
     
     <div class="mb-3">
-        <label for="serialNumber" class="form-label">Serial Number</label>
-        <InputText id="serialNumber" class="form-control" @bind-Value="NewInventoryItem.SerialNumber" />
-        <ValidationMessage For="@(() => NewInventoryItem.SerialNumber)" />
+        <label for="partNumber" class="form-label">Part Number</label>
+        <InputText id="partNumber" class="form-control" @bind-Value="NewInventoryItem.PartNumber" />
+        <ValidationMessage For="@(() => NewInventoryItem.PartNumber)" />
+    </div>
+    <div class="mb-3">
+        <label for="quantityPerUnit" class="form-label">Quantity Per Unit</label>
+        <InputNumber id="quantityPerUnit" class="form-control" @bind-Value="NewInventoryItem.QuantityPerUnit" />
+        <ValidationMessage For="@(() => NewInventoryItem.QuantityPerUnit)" />
+    </div>
+    <div class="mb-3">
+        <label for="unitName" class="form-label">Unit Name</label>
+        <InputText id="unitName" class="form-control" @bind-Value="NewInventoryItem.UnitName" placeholder="Pallets, Boxes, Bicycles"/>
+        <ValidationMessage For="@(() => NewInventoryItem.UnitName)" />
     </div>
     
-  <div class="d-flex gap-2">
+    <div class="d-flex gap-2">
     <button type="submit" class="btn btn-primary" disabled="@isSubmitting">
     @if (isSubmitting)
      {
         <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
         <span>Saving...</span>
      }
-            else
-            {
-                <span>Save Item</span>
-            }
+    else
+    {
+        <span>Save Item</span>
+    }
         </button>
         <button type="button" class="btn btn-secondary" @onclick="Cancel">Cancel</button>
     </div>
