@@ -329,15 +329,24 @@ namespace SimpleInventorySystem.Database
             return property;
         }
 
-        public async Task<IEnumerable<InventoryItem>> GetInventoryItemPageAsync(int page, int pageSize, string orderBy, OrderByDirection orderDirection = OrderByDirection.Ascending)
+        public async Task<IEnumerable<InventoryItem>> GetInventoryItemPageAsync(int page, int pageSize, string orderBy = nameof(InventoryItem.Name), OrderByDirection orderDirection = OrderByDirection.Ascending)
         {
-            var currentPage = page < 0 ? 0 : page - 1;
+            var ob = orderBy.ToLower();
+            var currentPage = page;
             var direction = orderDirection == OrderByDirection.Ascending ? "ASC" : "DESC";
-            var ob = string.IsNullOrWhiteSpace(orderBy) ? nameof(InventoryItem.Id).ToLower() : orderBy.ToLower();
+
+            var validColumns = typeof(InventoryItem)
+                .GetProperties()
+                .Select(prop => prop.Name.ToLower())
+                .ToHashSet(StringComparer.Ordinal);
+
+            if (!validColumns.Contains(ob))
+                throw new ArgumentException($"Invalid column {orderBy}");
+
             var sql = $@"
                 SELECT *
                 FROM {INVENTORY_ITEM_TABLE_NAME}
-                ORDER BY @orderColumn @orderDirection
+                ORDER BY {orderBy} {direction}
                 LIMIT @PageSize OFFSET @Offset;";
             var items = await db.QueryAsync<InventoryItem>(sql, new { PageSize = pageSize, Offset = currentPage * pageSize, orderColumn = ob, orderDirection = direction });
             return items;

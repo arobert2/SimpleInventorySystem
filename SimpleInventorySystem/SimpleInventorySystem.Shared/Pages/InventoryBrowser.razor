@@ -1,5 +1,28 @@
-﻿<h3>InventoryItems</h3>
+﻿@page "/inventory-items"
+@layout MainLayout
+@inject IInventoryRepository InventoryItemService
 
+<h3>InventoryItems</h3>
+<div>
+    @foreach(var item in inventoryItems)
+    {
+        <div class="card m-2">
+            <div class="card-body">
+                <h5 class="card-title">@item.Name</h5>
+                <h6 class="card-subtitle mb-2 text-muted">Part Number: @item.PartNumber</h6>
+                <p class="card-text">@item.Description</p>
+                <p class="card-text">Quantity Per Unit: @item.QuantityPerUnit @item.UnitName</p>
+            </div>
+        </div>
+    }
+</div>
 @code {
+    private int currentPage = 0;
 
+    private IEnumerable<InventoryItem> inventoryItems { get; set; } =  Array.Empty<InventoryItem>();
+    
+    protected override async Task OnInitializedAsync()
+    {
+        inventoryItems = await InventoryItemService.GetInventoryItemPageAsync(currentPage, 100, nameof(InventoryItem.Name), Database.InventoryRepository.OrderByDirection.Ascending);
+    }
 }
