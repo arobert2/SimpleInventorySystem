@@ -1,11 +1,12 @@
-﻿using System;
+﻿using SimpleInventorySystem.Database.Contracts;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Text;
 
 namespace SimpleInventorySystem.Database.Models
 {
-    public class InventoryItem
+    public class InventoryItem : ILamportable
     {
         public Guid Id { get; set; }
         [Required]
@@ -19,7 +20,7 @@ namespace SimpleInventorySystem.Database.Models
         [Required]
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
-        public int LamportClock { get; set; }
+        public long LamportClock { get; set; }
         public bool Deleted { get; set; }
     }
 }

@@ -23,7 +23,7 @@ namespace SimpleInventorySystem.Database
         private const string INVENTORY_ITEM_TABLE_NAME = "inventory_items";
         private const string UNIT_ITEM_TABLE_NAME = "item_units";
         private const string ITEM_PROPERTY_TABLE_NAME = "item_properties";
-        private const string LAMPORT_CLOCK_COLUMN = "lamport_clock";
+        private readonly string LAMPORT_CLOCK_COLUMN = nameof(ILamportable.LamportClock).ToLower();
 
         public InventoryRepository(IDbConnection db)
         {
@@ -45,14 +45,14 @@ namespace SimpleInventorySystem.Database
             return count;
         }
         
-        private async Task<bool> ValidateLamportClock(Guid itemId, string tableName, int userLamport)
+        private async Task<bool> ValidateLamportClock(Guid itemId, string tableName, long userLamport, IDbTransaction transaction = null)
         {
             var sql = $@"
                 SELECT {LAMPORT_CLOCK_COLUMN}
-                FROM @tName
+                FROM {tableName}
                 WHERE {nameof(InventoryItem.Id).ToLower()} = @Id;
             ";
-            var existingLamport = await db.ExecuteScalarAsync<int>(sql, new { tName = tableName, Id = itemId });
+            var existingLamport = await db.ExecuteScalarAsync<int>(sql, new { tName = tableName, Id = itemId }, transaction);
             return userLamport > existingLamport;
         }
 
@@ -150,12 +150,11 @@ namespace SimpleInventorySystem.Database
                     {nameof(InventoryItem.QuantityPerUnit).ToLower()},
                     {nameof(InventoryItem.UnitName).ToLower()},
                     {nameof(InventoryItem.CreatedAt).ToLower()}, 
-                    {nameof(InventoryItem.UpdatedAt).ToLower()}, 
-                    {nameof(InventoryItem.Deleted).ToLower()}, 
+                    {nameof(InventoryItem.UpdatedAt).ToLower()}
                 )
                 VALUES 
-                (@Name, @Description, @PartNumber, @QuantityPerUnit, @UnitName, @CreatedAt, @UpdatedAt, @Deleted)
-                RETURNING id;             
+                (@Name, @Description, @PartNumber, @QuantityPerUnit, @UnitName, @CreatedAt, @UpdatedAt)
+                RETURNING {nameof(InventoryItem.Id).ToLower()};             
             ";
 
             var addProperties = $@"
@@ -178,9 +177,10 @@ namespace SimpleInventorySystem.Database
                     Name = newItem.Name,
                     Description = newItem.Description,
                     PartNumber = newItem.PartNumber,
+                    QuantityPerUnit = newItem.QuantityPerUnit,
+                    UnitName = newItem.UnitName,
                     CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow,
-                    Deleted = newItem.Deleted,
+                    UpdatedAt = DateTime.UtcNow
                 }, transaction);
 
                 if(result == null)
@@ -227,15 +227,15 @@ namespace SimpleInventorySystem.Database
                     {nameof(InventoryItem.QuantityPerUnit).ToLower()} = @QuantityPerUnit,
                     {nameof(InventoryItem.UnitName).ToLower()} = @UnitName,
                     {nameof(InventoryItem.UpdatedAt).ToLower()} = @UpdatedAt,
-                    {nameof(InventoryItem.LamportClock).ToLower()} = @UserLamport
+                    {LAMPORT_CLOCK_COLUMN} = @UserLamport
                 WHERE {nameof(InventoryItem.Id).ToLower()} = @Id;
             ";
 
             var removePropertiesQuery = $@"
                 UPDATE {ITEM_PROPERTY_TABLE_NAME}
-                SET {nameof(InventoryItemProperty.Deleted).ToLower()} = TRUE
+                SET {nameof(InventoryItemProperty.Deleted).ToLower()} = true
                 WHERE {nameof(InventoryItemProperty.InventoryItemId).ToLower()} = @InventoryItemId
-                AND {nameof(InventoryItemProperty.PropertyName).ToLower()} = ANY(@PropertyNames);
+                AND {nameof(InventoryItemProperty.PropertyName).ToLower()} != ALL(@PropertyNames);
             ";
 
             var addNewProperties = $@"
@@ -254,7 +254,7 @@ namespace SimpleInventorySystem.Database
             try
             {
                 // Lamport Check
-                if(!await ValidateLamportClock(updatedItem.Id, INVENTORY_ITEM_TABLE_NAME, updatedItem.LamportClock))              
+                if(!await ValidateLamportClock(updatedItem.Id, INVENTORY_ITEM_TABLE_NAME, updatedItem.LamportClock, transaction))              
                     throw new InvalidLamportException("Provided Lamport clock is not greater than existing value.");
                 
                 // Update Item
@@ -268,14 +268,14 @@ namespace SimpleInventorySystem.Database
                     UnitName = updatedItem.UnitName,
                     UpdatedAt = DateTime.UtcNow,
                     UserLamport = updatedItem.LamportClock
-                });
+                }, transaction);
 
                 // Remove old properties
                 result = await db.ExecuteAsync(removePropertiesQuery, new
                 {
                     InventoryItemId = updatedItem.Id,
                     PropertyNames = currentProperties
-                });
+                }, transaction);
 
                 // Add new properties
                 result = await db.ExecuteAsync(addNewProperties, newProperties.Select(p => new
@@ -304,17 +304,20 @@ namespace SimpleInventorySystem.Database
         /// <returns>Entry</returns>
         public async Task<InventoryItem?> GetInventoryItemByIdAsync(Guid id)
         {
+            db.Open();
             var sql = $@"
                 SELECT *
                 FROM {INVENTORY_ITEM_TABLE_NAME}
                 WHERE {nameof(InventoryItem.Id).ToLower()} = @Id;
             ";
             var item = await db.QuerySingleOrDefaultAsync<InventoryItem>(sql, new { Id = id });
+            db.Close();
             return item;
         }
 
         public async Task<IEnumerable<InventoryItemProperty>> GetInventoryItemPropertiesAsync(Guid inventoryItemId)
         {
+            db.Open();
             var sql = $@"
                 SELECT *
                 FROM {ITEM_PROPERTY_TABLE_NAME}
@@ -322,6 +325,7 @@ namespace SimpleInventorySystem.Database
                 AND {nameof(InventoryItemProperty.Deleted).ToLower()} = FALSE;
             ";
             var property = await db.QueryAsync<InventoryItemProperty>(sql, new { InventoryItemId = inventoryItemId });
+            db.Close();
             return property;
         }
 

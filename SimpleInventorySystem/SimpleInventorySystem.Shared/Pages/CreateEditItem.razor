@@ -1,6 +1,6 @@
-﻿@page "/newitem/{InventoryItemId:Guid?}"
+﻿@page "/item/edit/{InventoryItemId:guid?}"
 @layout MainLayout
-@inject ILogger<NewItem> logger
+@inject ILogger<CreateEditItem> logger
 @inject IInventoryRepository inventoryRepo
 @inject NavigationManager NavManager
 
@@ -54,6 +54,20 @@
     </div>
     
     <table>
+        @foreach (var itemProperty in ExistingItemProperties)
+        {
+            <tr>
+                <td>
+                    <InputText class="form-control" @bind-Value="itemProperty.PropertyName" placeholder="Property Name" />
+                </td>
+                <td>
+                    <InputText class="form-control" @bind-Value="itemProperty.PropertyValue" placeholder="Property Value" />
+                </td>
+                <td>
+                    <button type="button" class="btn btn-danger" @onclick="() => RemoveExistingProperty(itemProperty)">Remove</button>
+                </td>
+            </tr>
+        }
         @foreach(var itemProperty in NewItemProperties)
         {
             <tr>
@@ -64,7 +78,7 @@
                     <InputText class="form-control" @bind-Value="itemProperty.PropertyValue" placeholder="Property Value" />
                 </td>
                 <td>
-                    <button type="button" class="btn btn-danger" @onclick="() => RemoveProperty(itemProperty)">Remove</button>
+                    <button type="button" class="btn btn-danger" @onclick="() => RemoveNewProperty(itemProperty)">Remove</button>
                 </td>
             </tr>
         }
@@ -89,7 +103,7 @@
 
 @code {
     [SupplyParameterFromForm(FormName = "new-item-form")]
-    private InventoryItem NewInventoryItem { get; set; }
+    private InventoryItem NewInventoryItem { get; set; } = new InventoryItem();
     [Parameter]
     public Guid? InventoryItemId { get; set; }
 
@@ -113,7 +127,9 @@
             if(NewInventoryItem == null)          
                 NavManager.NavigateTo("/NotFound", forceLoad: true);
 
+            NewInventoryItem!.LamportClock += 1;
             ExistingItemProperties = (await inventoryRepo.GetInventoryItemPropertiesAsync(InventoryItemId.Value))?.ToList() ?? new List<InventoryItemProperty>();
+            return;
         }
         // Initialize timestamps
         NewInventoryItem = new InventoryItem();
@@ -187,9 +203,14 @@
         NewItemProperties.Add(new InventoryItemProperty());
     }
 
-    private void RemoveProperty(InventoryItemProperty property)
+    private void RemoveNewProperty(InventoryItemProperty property)
     {
         NewItemProperties.Remove(property);
+    }
+
+    private void RemoveExistingProperty(InventoryItemProperty property)
+    {
+        ExistingItemProperties.Remove(property);
     }
 
     private void Cancel()
